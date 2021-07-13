@@ -204,6 +204,9 @@ thread_create (const char *name, int priority,
   /* Add to run queue. */
   thread_unblock (t);
 
+  if(thread_current()->virtual_priority < t->virtual_priority)
+    thread_yield();
+
   return tid;
 }
 
@@ -242,7 +245,7 @@ thread_unblock (struct thread *t)
   ASSERT (t->status == THREAD_BLOCKED);
   list_push_back (&ready_list, &t->elem);
   t->status = THREAD_READY;
-  intr_set_level (old_level);
+  intr_set_level (old_level); 
 }
 
 /* Returns the name of the running thread. */
@@ -338,7 +341,12 @@ thread_foreach (thread_action_func *func, void *aux)
 void
 thread_set_priority (int new_priority) 
 {
+  int temp = thread_current ()->priority;
   thread_current ()->priority = new_priority;
+//priority donation
+  thread_current ()->virtual_priority = new_priority;
+  if(new_priority < temp)
+    thread_yield();
 }
 
 /* Returns the current thread's priority. */
@@ -465,6 +473,7 @@ init_thread (struct thread *t, const char *name, int priority)
   strlcpy (t->name, name, sizeof t->name);
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
+  t->virtual_priority = priority;
   t->magic = THREAD_MAGIC;
 
   old_level = intr_disable ();
@@ -495,8 +504,15 @@ next_thread_to_run (void)
 {
   if (list_empty (&ready_list))
     return idle_thread;
-  else
-    return list_entry (list_pop_front (&ready_list), struct thread, elem);
+  else{
+      struct list_elem* e;
+      struct thread *next_thread;
+      //choose thread with highest virtual priority
+      e = list_max (&ready_list,list_priority_comp, NULL);
+      next_thread =  list_entry(e, struct thread, elem);
+      list_remove(e);
+      return next_thread;
+  }
 }
 
 /* Completes a thread switch by activating the new thread's page

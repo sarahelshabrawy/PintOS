@@ -32,7 +32,7 @@ static void busy_wait (int64_t loops);
 static void real_time_sleep (int64_t num, int32_t denom);
 static void real_time_delay (int64_t num, int32_t denom);
 
-bool list_wakeup_time_comp(const struct list_elem*a,const struct list_elem*b, void*aux UNUSED);
+static bool list_wakeup_time_comp(const struct list_elem*a,const struct list_elem*b, void*aux UNUSED);
 
 /* Sets up the timer to interrupt TIMER_FREQ times per second,
    and registers the corresponding interrupt. */
@@ -89,7 +89,7 @@ timer_elapsed (int64_t then)
   return timer_ticks () - then;
 }
 
-bool
+static bool
 list_wakeup_time_comp(const struct list_elem*a,const struct list_elem*b, void*aux UNUSED){
   
   const int64_t a_member = list_entry(a, struct thread, elem)->wakeupTime;

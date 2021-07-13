@@ -32,6 +32,7 @@
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 
+
 /* Initializes semaphore SEMA to VALUE.  A semaphore is a
    nonnegative integer along with two atomic operators for
    manipulating it:
@@ -101,6 +102,14 @@ sema_try_down (struct semaphore *sema)
   return success;
 }
 
+bool
+list_priority_comp(const struct list_elem*a,const struct list_elem*b, void*aux UNUSED){
+  
+  const int a_member = list_entry(a, struct thread, elem)->virtual_priority;
+  const int b_member = list_entry(b, struct thread, elem)->virtual_priority;
+  return a_member < b_member;
+}
+
 /* Up or "V" operation on a semaphore.  Increments SEMA's value
    and wakes up one thread of those waiting for SEMA, if any.
 
@@ -113,10 +122,22 @@ sema_up (struct semaphore *sema)
   ASSERT (sema != NULL);
 
   old_level = intr_disable ();
-  if (!list_empty (&sema->waiters)) 
-    thread_unblock (list_entry (list_pop_front (&sema->waiters),
-                                struct thread, elem));
+  bool reschedule = false;
+  if (!list_empty (&sema->waiters)) {
+  struct list_elem* e;
+  struct thread *next_thread;
+  //choose thread with highest virtual priority
+  e = list_max (&sema->waiters,list_priority_comp, NULL);
+  next_thread =  list_entry(e, struct thread, elem);
+  list_remove(e);
+  thread_unblock (next_thread);
+  if(thread_current()->virtual_priority < next_thread->virtual_priority)
+      reschedule = true;
+  }
+
   sema->value++;
+  if(reschedule)
+    thread_yield();
   intr_set_level (old_level);
 }
 
@@ -301,6 +322,32 @@ cond_wait (struct condition *cond, struct lock *lock)
   lock_acquire (lock);
 }
 
+
+static struct semaphore_elem * find_max_cond(struct list * waiters){
+
+//pointer
+  struct semaphore_elem * sema = list_entry (list_begin(waiters),struct semaphore_elem, elem);
+  struct list_elem *max = list_max(&sema->semaphore.waiters,list_priority_comp,NULL); //thread element
+  if (list_begin(waiters) != list_end (waiters)) 
+    {
+      struct list_elem *e;
+      for (e = list_next (sema); e != list_end (waiters); e = list_next (e)){
+        struct semaphore_elem * temp_sema = list_entry (e,struct semaphore_elem, elem); // sema element of e
+        struct list_elem *temp = list_max(&temp_sema->semaphore.waiters,list_priority_comp,NULL);//temp max thread elem
+
+        struct thread *temp_thread = list_entry(temp, struct thread, elem);//temp max thread
+        struct thread *max_thread = list_entry(max, struct thread, elem);// max thread
+
+        if (temp_thread->virtual_priority > max_thread->virtual_priority){
+           max = temp;          
+           sema = temp_sema;
+        }
+      }
+    }
+  return sema;
+}
+ 
+  
 /* If any threads are waiting on COND (protected by LOCK), then
    this function signals one of them to wake up from its wait.
    LOCK must be held before calling this function.
@@ -316,9 +363,12 @@ cond_signal (struct condition *cond, struct lock *lock UNUSED)
   ASSERT (!intr_context ());
   ASSERT (lock_held_by_current_thread (lock));
 
-  if (!list_empty (&cond->waiters)) 
-    sema_up (&list_entry (list_pop_front (&cond->waiters),
-                          struct semaphore_elem, elem)->semaphore);
+  if (!list_empty (&cond->waiters)) {
+  struct semaphore_elem * max_sema = find_max_cond(&cond->waiters);
+  list_remove(&max_sema->elem);
+  sema_up (&max_sema->semaphore);
+  }
+    
 }
 
 /* Wakes up all threads, if any, waiting on COND (protected by
