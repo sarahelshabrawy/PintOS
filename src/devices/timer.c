@@ -7,6 +7,7 @@
 #include "threads/interrupt.h"
 #include "threads/synch.h"
 #include "threads/thread.h"
+
   
 /* See [8254] for hardware details of the 8254 timer chip. */
 
@@ -32,6 +33,7 @@ static void busy_wait (int64_t loops);
 static void real_time_sleep (int64_t num, int32_t denom);
 static void real_time_delay (int64_t num, int32_t denom);
 
+static void update_priority_advanced(struct thread* t);
 static bool list_wakeup_time_comp(const struct list_elem*a,const struct list_elem*b, void*aux UNUSED);
 
 /* Sets up the timer to interrupt TIMER_FREQ times per second,
@@ -190,6 +192,23 @@ timer_print_stats (void)
   printf ("Timer: %"PRId64" ticks\n", timer_ticks ());
 }
 
+static void update_priority_advanced(struct thread* t){
+  real new_priority =FP_SUB(FP_SUB(FP_CONST(PRI_MAX), FP_DIV_MIX(t->cpu_recent , 4)), FP_MULT_MIX(FP_CONST(2),t->nice ));
+  t->priority = FP_INT_PART(new_priority);
+  //check range
+  if (t->priority < PRI_MIN)
+    t->priority = PRI_MIN;
+  else if (t->priority > PRI_MAX)
+    t->priority = PRI_MAX;
+}
+static void increase_cpu_time_all(struct thread* t, void* aux UNUSED)
+{
+  real intermediate = FP_DIV(FP_MULT_MIX(t->cpu_recent,2), FP_ADD_MIX(FP_MULT_MIX(t->cpu_recent,2), 1));
+  t->cpu_recent = FP_ADD_MIX(FP_MULT(intermediate, t->cpu_recent), t->nice);
+  update_priority_advanced(t);
+}
+
+
 /* Timer interrupt handler. */
 static void
 timer_interrupt (struct intr_frame *args UNUSED)
@@ -199,6 +218,26 @@ timer_interrupt (struct intr_frame *args UNUSED)
   bool reschedule = false;
   struct list_elem* e;
   struct thread *t;
+  struct thread *thread_currentt = thread_current();
+  if(thread_mlfqs)
+  {
+    //idle thread
+    thread_currentt->cpu_recent = FP_ADD_MIX( thread_currentt->cpu_recent, 1);
+    if(ticks % TIMER_FREQ == 0)
+    {
+      //thread_mlfqs_refresh ();
+      //get number of ready threads :
+      size_t ready_threads_num = get_ready_list_size();
+      //calculate load avg
+      load_avg = FP_ADD(FP_DIV_MIX(FP_MULT_MIX(load_avg,59), 60), FP_DIV_MIX(FP_CONST(ready_threads_num), 60)); 
+      thread_foreach(increase_cpu_time_all, NULL);
+    }
+    if(ticks % 4 == 0)
+    {
+      //thread_mlfqs_update_priority (thread_current ());
+      update_priority_advanced(thread_currentt);
+    }
+  }
   // loop through sleeping threads till encounter greater wakeup time
   while(!list_empty(&sleeping_threads)) {
     e = list_front(&sleeping_threads);

@@ -23,7 +23,6 @@
 /* List of processes in THREAD_READY state, that is, processes
    that are ready to run but not actually running. */
 static struct list ready_list;
-
 /* List of all processes.  Processes are added to this list
    when they are first scheduled and removed when they exit. */
 static struct list all_list;
@@ -92,15 +91,20 @@ thread_init (void)
   lock_init (&tid_lock);
   list_init (&ready_list);
   list_init (&all_list);
-
   /* Set up a thread structure for the running thread. */
   initial_thread = running_thread ();
+  initial_thread->nice = 0;
+  initial_thread->cpu_recent = FP_CONST(0);
   init_thread (initial_thread, "main", PRI_DEFAULT);
   initial_thread->status = THREAD_RUNNING;
   initial_thread->tid = allocate_tid ();
-
-
   initial_thread->wakeupTime = 0;
+}
+/*get number of elements in ready list*/
+size_t get_ready_list_size()
+{
+  //idle
+  return list_size(&ready_list) + 1;
 }
 
 /* Starts preemptive thread scheduling by enabling interrupts.
@@ -112,7 +116,7 @@ thread_start (void)
   struct semaphore idle_started;
   sema_init (&idle_started, 0);
   thread_create ("idle", PRI_MIN, idle, &idle_started);
-
+  load_avg = FP_CONST (0);
   /* Start preemptive thread scheduling. */
   intr_enable ();
 
@@ -184,6 +188,8 @@ thread_create (const char *name, int priority,
 
   /* Initialize thread. */
   init_thread (t, name, priority);
+  t->nice = thread_get_nice();
+  t->cpu_recent = thread_current()->cpu_recent;
   tid = t->tid = allocate_tid ();
 
   /* Stack frame for kernel_thread(). */
@@ -341,12 +347,12 @@ thread_foreach (thread_action_func *func, void *aux)
 void
 thread_set_priority (int new_priority) 
 {
+  enum intr_level old_level = intr_disable ();
   int temp = thread_current ()->priority;
-  thread_current ()->priority = new_priority;
-//priority donation
   thread_current ()->priority = new_priority;
   if(new_priority < temp)
     thread_yield();
+  intr_set_level (old_level);
 }
 
 /* Returns the current thread's priority. */
@@ -358,33 +364,37 @@ thread_get_priority (void)
 
 /* Sets the current thread's nice value to NICE. */
 void
-thread_set_nice (int nice UNUSED) 
+thread_set_nice (int n)
 {
-  /* Not yet implemented. */
+    enum intr_level old_level;
+    old_level = intr_disable();
+    struct thread *thread_currentt = thread_current();
+    thread_currentt->nice = n;
+    real new_priority = FP_SUB(FP_SUB(FP_CONST(PRI_MAX), FP_DIV_MIX(thread_currentt->cpu_recent , 4)), FP_MULT_MIX(FP_CONST(2),thread_currentt->nice ));
+    thread_set_priority(FP_ROUND(new_priority));
+    intr_set_level(old_level);
 }
 
 /* Returns the current thread's nice value. */
 int
 thread_get_nice (void) 
 {
-  /* Not yet implemented. */
-  return 0;
+  return thread_current()->nice;
 }
 
 /* Returns 100 times the system load average. */
 int
 thread_get_load_avg (void) 
 {
-  /* Not yet implemented. */
-  return 0;
+  return FP_ROUND( FP_MULT_MIX(load_avg, 100)) ;
 }
 
 /* Returns 100 times the current thread's recent_cpu value. */
 int
 thread_get_recent_cpu (void) 
 {
-  /* Not yet implemented. */
-  return 0;
+  struct thread *t = thread_current();
+  return FP_ROUND( FP_MULT_MIX(t->cpu_recent, 100));
 }
 
 /* Idle thread.  Executes when no other thread is ready to run.
