@@ -204,7 +204,7 @@ thread_create (const char *name, int priority,
   /* Add to run queue. */
   thread_unblock (t);
 
-  if(thread_current()->virtual_priority < t->virtual_priority)
+  if(thread_current()->priority < t->priority)
     thread_yield();
 
   return tid;
@@ -344,7 +344,7 @@ thread_set_priority (int new_priority)
   int temp = thread_current ()->priority;
   thread_current ()->priority = new_priority;
 //priority donation
-  thread_current ()->virtual_priority = new_priority;
+  thread_current ()->priority = new_priority;
   if(new_priority < temp)
     thread_yield();
 }
@@ -473,7 +473,8 @@ init_thread (struct thread *t, const char *name, int priority)
   strlcpy (t->name, name, sizeof t->name);
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
-  t->virtual_priority = priority;
+  t->base_priority = priority;
+  list_init(&t->locks_held);
   t->magic = THREAD_MAGIC;
 
   old_level = intr_disable ();

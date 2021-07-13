@@ -93,8 +93,8 @@ struct thread
     struct list_elem elem;              /* List element. */
 
     int64_t wakeupTime;                 /* Sleeping Threads. */
-    int virtual_priority;                       /* Virtual Priority. */
-
+    int base_priority;                       /* Base Priority. */
+    struct list locks_held;
 
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
