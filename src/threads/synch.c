@@ -71,7 +71,7 @@ sema_down (struct semaphore *sema)
   old_level = intr_disable ();
   while (sema->value == 0)
     {
-      list_push_back (&sema->waiters, &thread_current ()->elem);
+     list_insert_ordered (&sema->waiters, &thread_current ()->elem,list_priority_comp, NULL); 
       thread_block ();
     }
   sema->value--;
@@ -215,12 +215,41 @@ lock_init (struct lock *lock)
 void
 lock_acquire (struct lock *lock)
 {
- ASSERT (lock != NULL);
+  struct thread *t = thread_current ();
+  struct lock *l;
+  int depth = 0;
+  enum intr_level old_level;
+
+  ASSERT (lock != NULL);
   ASSERT (!intr_context ());
   ASSERT (!lock_held_by_current_thread (lock));
 
+  if (lock->holder != NULL && !thread_mlfqs)
+    {
+      t->lock_waiting = lock;
+      l = lock;
+      /* Do nested priority donation. */
+      while (l && t->priority > l->max_priority
+             && depth++ < 9)
+        {
+          l->max_priority = t->priority;
+          thread_donate_priority (l->holder);
+          l = l->holder->lock_waiting;
+        }
+    }
+
   sema_down (&lock->semaphore);
-  lock->holder = thread_current ();
+
+  old_level = intr_disable ();
+  t = thread_current ();
+  if (!thread_mlfqs)
+    {
+      t->lock_waiting = NULL;
+      lock->max_priority = t->priority;
+      thread_add_lock (lock);
+    }
+  lock->holder = t;
+  intr_set_level (old_level);
 }
 
 /* Tries to acquires LOCK and returns true if successful or false
@@ -249,15 +278,34 @@ lock_try_acquire (struct lock *lock)
    make sense to try to release a lock within an interrupt
    handler. */
 void
-lock_release (struct lock *lock)
+lock_release (struct lock *lock) 
 {
+  enum intr_level old_level;
+
   ASSERT (lock != NULL);
   ASSERT (lock_held_by_current_thread (lock));
 
+  old_level = intr_disable ();
+
+  if (!thread_mlfqs)
+    thread_remove_lock (lock);
+
   lock->holder = NULL;
   sema_up (&lock->semaphore);
-}
 
+  intr_set_level (old_level);
+}
+//aaaaaaaaaaa
+bool
+lock_priority_large (const struct list_elem *a,
+                     const struct list_elem *b,
+                     void *aux UNUSED)
+{
+  struct lock *la = list_entry (a, struct lock, elem);
+  struct lock *lb = list_entry (b, struct lock, elem);
+  return la->max_priority > lb->max_priority;
+}
+//aaaaaaaaaaaaaa
 /* Returns true if the current thread holds LOCK, false
    otherwise.  (Note that testing whether some other thread holds
    a lock would be racy.) */

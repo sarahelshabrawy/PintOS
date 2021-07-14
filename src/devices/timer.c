@@ -193,7 +193,7 @@ timer_print_stats (void)
 }
 
 static void update_priority_advanced(struct thread* t){
-  real new_priority =FP_SUB(FP_SUB(FP_CONST(PRI_MAX), FP_DIV_MIX(t->cpu_recent , 4)), FP_MULT_MIX(FP_CONST(2),t->nice ));
+  real new_priority =FP_SUB_MIX(FP_SUB(FP_CONST(PRI_MAX), FP_DIV_MIX(t->cpu_recent , 4)), 2* t->nice );
   t->priority = FP_INT_PART(new_priority);
   //check range
   if (t->priority < PRI_MIN)
@@ -203,7 +203,7 @@ static void update_priority_advanced(struct thread* t){
 }
 static void increase_cpu_time_all(struct thread* t, void* aux UNUSED)
 {
-  real intermediate = FP_DIV(FP_MULT_MIX(t->cpu_recent,2), FP_ADD_MIX(FP_MULT_MIX(t->cpu_recent,2), 1));
+  real intermediate = FP_DIV(FP_MULT_MIX(load_avg,2), FP_ADD_MIX(FP_MULT_MIX(load_avg,2), 1));
   t->cpu_recent = FP_ADD_MIX(FP_MULT(intermediate, t->cpu_recent), t->nice);
   update_priority_advanced(t);
 }

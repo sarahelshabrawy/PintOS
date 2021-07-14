@@ -370,8 +370,8 @@ thread_set_nice (int n)
     old_level = intr_disable();
     struct thread *thread_currentt = thread_current();
     thread_currentt->nice = n;
-    real new_priority = FP_SUB(FP_SUB(FP_CONST(PRI_MAX), FP_DIV_MIX(thread_currentt->cpu_recent , 4)), FP_MULT_MIX(FP_CONST(2),thread_currentt->nice ));
-    thread_set_priority(FP_ROUND(new_priority));
+    real new_priority =FP_SUB_MIX(FP_SUB(FP_CONST(PRI_MAX), FP_DIV_MIX(thread_currentt->cpu_recent , 4)), 2* thread_currentt->nice );
+    thread_set_priority(FP_INT_PART(new_priority));
     intr_set_level(old_level);
 }
 
@@ -484,6 +484,7 @@ init_thread (struct thread *t, const char *name, int priority)
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
   t->base_priority = priority;
+  t->lock_waiting = NULL;
   list_init(&t->locks_held);
   t->magic = THREAD_MAGIC;
 
@@ -525,7 +526,76 @@ next_thread_to_run (void)
       return next_thread;
   }
 }
+//aaaaaaaaaa
+/* Add a held lock to current thread. */
+void
+thread_add_lock (struct lock *lock)
+{
+  enum intr_level old_level = intr_disable ();
+  list_insert_ordered (&thread_current ()->locks_held, &lock->elem,
+                       lock_priority_large, NULL);
 
+  /* Update priority and test preemption if lock's priority
+     is larger than current priority. */
+  if (lock->max_priority > thread_current ()->priority)
+    {
+      thread_current ()->priority = lock->max_priority;
+      //88888888
+      thread_yield();
+    }
+  intr_set_level (old_level);
+}
+
+/* Remove a held lock from current thread. */
+void
+thread_remove_lock (struct lock *lock)
+{
+  enum intr_level old_level = intr_disable ();
+  /* Remove lock from list and update priority. */
+  list_remove (&lock->elem);
+  thread_update_priority (thread_current ());
+  intr_set_level (old_level);
+}
+
+/* Donate current thread's priority to another thread. */
+void
+thread_donate_priority (struct thread *t)
+{
+  enum intr_level old_level = intr_disable ();
+  thread_update_priority (t);
+  /* If thread is in ready list, reorder it. */
+  if (t->status == THREAD_READY)
+    {
+      list_remove (&t->elem);
+      list_insert_ordered (&ready_list, &t->elem,
+                           list_priority_comp, NULL);
+    }
+  intr_set_level (old_level);
+}
+
+/* Update thread's priority. This function only update
+   priority and do not preempt. */
+void
+thread_update_priority (struct thread *t)
+{
+  enum intr_level old_level = intr_disable ();
+  int max_priority = t->base_priority;
+  int lock_priority;
+
+  /* Get locks' max priority. */
+  if (!list_empty (&t->locks_held))
+    {
+      list_sort (&t->locks_held, lock_priority_large, NULL);
+      lock_priority = list_entry (list_front (&t->locks_held),
+                                  struct lock, elem)->max_priority;
+      if (lock_priority > max_priority)
+        max_priority = lock_priority;
+    }
+
+  t->priority = max_priority;
+  intr_set_level (old_level);
+}
+//aaaaaaaaaaa
 /* Completes a thread switch by activating the new thread's page
    tables, and, if the previous thread is dying, destroying it.
 

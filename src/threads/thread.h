@@ -97,7 +97,7 @@ struct thread
     int64_t wakeupTime;                 /* Sleeping Threads. */
     int base_priority;                       /* Base Priority. */
     struct list locks_held;
-
+    struct lock *lock_waiting;
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */
@@ -142,6 +142,11 @@ void thread_foreach (thread_action_func *, void *);
 
 int thread_get_priority (void);
 void thread_set_priority (int);
+
+void thread_add_lock (struct lock *);
+void thread_remove_lock (struct lock *);
+void thread_donate_priority (struct thread *);
+void thread_update_priority (struct thread *);
 
 int thread_get_nice (void);
 void thread_set_nice (int);
